@@ -1,0 +1,5 @@
+
+[production]
+openai>=1.30.0
+redis>=5.0.0
+azure-identity>=1.17.0

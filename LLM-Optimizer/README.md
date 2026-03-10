@@ -1,0 +1,106 @@
+# LLM Optimizer
+
+Minimal reference implementation for reducing LLM cost with architecture changes:
+
+- Semantic caching (embedding similarity, not exact prompt match)
+- System-level prompt trimming
+- Dynamic tool loading
+- Per-endpoint token monitoring
+
+## What this project includes
+
+- `src/llm_optimizer/embeddings.py` — deterministic local embeddings for semantic similarity
+- `src/llm_optimizer/semantic_cache.py` — in-memory cosine-similarity cache
+- `src/llm_optimizer/prompt_trimmer.py` — intent-based history pruning + thread summary + tool selection
+- `src/llm_optimizer/metrics.py` — weekly token usage monitoring by endpoint
+- `src/llm_optimizer/pipeline.py` — orchestration layer combining all steps
+- `src/example.py` — runnable demo that shows cache hits for semantically similar prompts
+- `src/llm_optimizer/openai_adapters.py` — production adapters for OpenAI and Azure OpenAI chat + embeddings
+- `src/llm_optimizer/redis_cache.py` — Redis-backed semantic cache
+- `src/production_example.py` — production wiring example with env-based config
+
+## Quick start
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -e .
+python src/example.py
+```
+
+## Production adapters (OpenAI/Azure OpenAI + Redis)
+
+Install optional dependencies:
+
+```bash
+pip install -e .[production]
+```
+
+Set environment variables for OpenAI:
+
+```bash
+export OPENAI_API_KEY="your_key"
+export OPENAI_CHAT_MODEL="gpt-4o-mini"
+export OPENAI_EMBEDDING_MODEL="text-embedding-3-small"
+export REDIS_AUTH_MODE="key"
+export REDIS_URL="redis://localhost:6379/0"
+export SEMANTIC_CACHE_THRESHOLD="0.88"
+export SEMANTIC_CACHE_MAX_ENTRIES="10000"
+export SEMANTIC_CACHE_NAMESPACE="llm-optimizer"
+```
+
+Set environment variables for Azure OpenAI with Entra ID (AD) auth:
+
+```bash
+export USE_AZURE_OPENAI="true"
+export AZURE_OPENAI_ENDPOINT="https://<resource>.openai.azure.com"
+export AZURE_OPENAI_API_VERSION="2024-10-21"
+export AZURE_OPENAI_CHAT_DEPLOYMENT="gpt-4o-mini-prod"
+export AZURE_OPENAI_EMBEDDING_DEPLOYMENT="text-embedding-3-small-prod"
+export AZURE_OPENAI_AAD_SCOPE="https://cognitiveservices.azure.com/.default"
+export REDIS_AUTH_MODE="entra"
+export REDIS_HOST="redis-llm-opt.redis.cache.windows.net"
+export REDIS_PORT="6380"
+export REDIS_DB="0"
+export REDIS_TLS="true"
+export REDIS_ENTRA_USERNAME="<object-id-of-user-or-managed-identity>"
+export REDIS_AAD_SCOPE="https://redis.azure.com/.default"
+export SEMANTIC_CACHE_THRESHOLD="0.88"
+export SEMANTIC_CACHE_MAX_ENTRIES="10000"
+export SEMANTIC_CACHE_NAMESPACE="llm-optimizer"
+```
+
+`USE_AZURE_OPENAI=true` enables Azure mode. Azure mode is also auto-enabled if `AZURE_OPENAI_ENDPOINT` is set.
+
+Authenticate with Entra ID before running:
+
+```bash
+az login
+```
+
+In hosted environments, `DefaultAzureCredential` is used automatically (Managed Identity, workload identity, or service principal env vars).
+
+Redis auth modes:
+
+- `REDIS_AUTH_MODE=key`: use `REDIS_URL` with password/key.
+- `REDIS_AUTH_MODE=entra`: use Entra token auth with `REDIS_HOST`, `REDIS_PORT`, `REDIS_DB`, `REDIS_TLS`, `REDIS_ENTRA_USERNAME`, and `REDIS_AAD_SCOPE`.
+
+Run production wiring example:
+
+```bash
+python src/production_example.py
+```
+
+## Key runtime knobs
+
+- `similarity_threshold`: default `0.88` (tune by quality tests)
+- `max_history_messages`: how many history messages are retained before summarization
+- `summary_max_chars`: summary budget for retained state
+
+## Notes
+
+- The semantic cache is in-memory for the MVP. Replace with Redis/Postgres + vector index for production.
+- Embeddings are deterministic local vectors for demo purposes. Swap in your model embedding provider in `EmbeddingProvider`.
+- This project intentionally avoids model switching and focuses on cost reduction through architecture.
+- `RedisSemanticCache` keeps the same `lookup/store` behavior and can be dropped into `OptimizerEngine`.
+- In Azure mode, deployment names are used for chat and embeddings.
